@@ -7,8 +7,13 @@
 #' @export
 #' @examples
 #' loadCRISPRTargetData()
-loadCRISPRTargetData <- function(filename,keep_selfmatch=F,threshold,keep_redundant=F,targets_file_name){
-
+loadCRISPRTargetData <- function(filename,keep_selfmatch,threshold,keep_redundant,targets_file_name){
+  if(missing(keep_selfmatch)) {
+    keep_selfmatch <- 'F'
+  }
+  if(missing(keep_redundant)) {
+    keep_redundant <- 'F'
+  }
   Dat <- read.table(filename, header=T, sep='\t')
   if(keep_selfmatch!='T'){
     Dat <- Dat[Dat[,14]==0,]
