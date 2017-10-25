@@ -33,9 +33,9 @@ identifyClusters <- function(nrDat,threshold){
         l <- length(arrayDat$Score)
         row_num <- as.character(rownames(arrayDat[l,]))
         xx[row_num,10] <- NA
-        
+
         #print(xx[row_num,])
-        
+
       }
     }
   }
