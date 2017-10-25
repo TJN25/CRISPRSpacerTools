@@ -1,0 +1,1415 @@
+---
+title: "CRISPR-cas_Systems_analysis"
+author: "Thomas Nicholson"
+date: "7/14/2017"
+output: 
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
+header-includes: \usepackage{float} 
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#source("http://bioconductor.org/biocLite.R")
+#biocLite(c('cowplot'))
+library(xtable)
+library(gplots)
+library(ggplot2)
+library(stringr)
+library(plyr)
+library(devtools)
+library(dplyr)
+library(tidyr)
+require(gridExtra)
+require(cowplot)
+
+```
+
+```{r functions, include=F}
+
+##not used here
+transform.df <- function(dat){
+  for(i in 1:length(dat[1,])){
+    if(substr(colnames(dat)[i],(nchar(colnames(dat)[i])-3),nchar(colnames(dat)[i]) )=='.num'){
+      dat[,i] <- as.character(dat[,i])
+      dat[,i] <- as.numeric(dat[,i])
+    }else if(substr(colnames(dat)[i], nchar(colnames(dat)[i])-3, nchar(colnames(dat)[i]))=='.y.n'){
+      dat[,i] <- as.logical(dat[,i])
+    }else{
+      dat[,i] <- as.character(dat[,i])
+    }
+  }
+  return(dat)
+}
+
+##not used here
+subtypes.counts.funct <- function(subtype.list, genomes){
+  subtype.count <- vector(mode = 'numeric', length = length(subtype.list))
+  for(i in 1:length(subtype.list)){
+    x <- grep(subtype.list[i], genomes$subtypes)
+    subtype.count[i] <- length(x)
+  }
+  subtypes.dat <- data.frame(subtype = subtype.list, counts = subtype.count)
+  return(subtypes.dat)
+  }
+
+Subtype.label <- "III-A"
+##tested and works
+plotProtospacerDistribution <- function(Subtype.label = "I-F", dat = targets.dat){
+  binwidth.val <- 200
+  distance.window <- 10000
+  ##store input variable for use later
+  input.dat <- dat
+  input.subtype <- Subtype.label
+  
+  dat <- dat%>%filter(Subtype == Subtype.label)
+
+  dat <- dat%>%filter(spacer_order.num > 1)#%>%filter(protospacer.distance.num != -1)%>%filter(protospacer.distance.num != 1)%>%filter(protospacer.distance.num != -2)%>%filter(protospacer.distance.num != 2)%>%filter(protospacer.distance.num != -3)%>%filter(protospacer.distance.num != 3)
+
+    dat <- dat%>%filter(protospacer.distance.num > -distance.window)%>%filter(protospacer.distance.num < distance.window)
+    ##get maximum count for the graphs
+    targets.dat.n0 <- dat%>%filter(Subtype == Subtype.label)
+    aa <- targets.dat.n0%>%filter(strand.plus.direction == "n_3")
+    bb <- targets.dat.n0%>%filter(strand.plus.direction == "n_5")
+    cc <- targets.dat.n0%>%filter(strand.plus.direction == "t_3")
+    dd <- targets.dat.n0%>%filter(strand.plus.direction == "t_5")
+    
+    bins.max <- max(c(max(hist(aa$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                      max(hist(bb$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                      max(hist(cc$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                      max(hist(dd$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts)))
+
+  ##set up data for plotting
+    dat <- dat%>%mutate(protospacer.distance.num = ifelse(five.three.prime.dir == "3", protospacer.distance.num + binwidth.val/2,  protospacer.distance.num - binwidth.val/2))
+    dat <- dat%>%mutate(protospacer.distance.num = ifelse(target.strand == "t", protospacer.distance.num, protospacer.distance.num*(-1)))
+
+  targets.dat.n0 <- dat%>%filter(Subtype == Subtype.label)
+
+
+    plot.title1 <- ifelse(distance.window != binwidth.val, paste("Distribution of Subtype ", Subtype.label, " hits (", nrow(targets.dat.n0), " hits.)" , sep = ""),  paste("Quadrant distribution of Subtype ", Subtype.label, " hits (", nrow(targets.dat.n0), " hits)", sep = ""))
+    plot.subtitle <- ifelse(distance.window != binwidth.val, paste("Window size = ", distance.window, " nucleotides. \nBinwdith = ", binwidth.val, " nucleotides.", sep = ""),  paste("Window size = ", distance.window, " nucleotides.", sep = ""))    
+
+  p <- ggplot() + 
+      geom_histogram(data=subset(targets.dat.n0, strand.plus.direction=="t_5"), binwidth = binwidth.val, aes(protospacer.distance.num, fill = "Target 5' direction", y= ..count..)) +
+      geom_histogram(data=subset(targets.dat.n0, strand.plus.direction=="t_3"), binwidth = binwidth.val, aes(protospacer.distance.num, fill = "Target 3' direction", y= ..count..)) +
+      geom_histogram(data=subset(targets.dat.n0, strand.plus.direction=="n_5"), binwidth = binwidth.val, aes(protospacer.distance.num, fill = "Non-target 5' direction", y= -..count..)) +
+      geom_histogram(data=subset(targets.dat.n0, strand.plus.direction=="n_3"), binwidth = binwidth.val, aes(protospacer.distance.num, fill = "Non-target 3' direction", y= -..count..)) +
+      #facet_wrap(~protospacer.distance.num)
+      scale_fill_hue("Group") +
+      ggtitle(label = plot.title1, subtitle = plot.subtitle) +
+      labs(x="Distance from oldest protospacer (nucleotides)",y="Number of hits") +
+      coord_cartesian(ylim = c(-bins.max - 3, bins.max + 3)) +
+      theme_bw() +
+      theme(axis.text.x=element_text(size=14),
+            axis.text.y=element_text(size=14),
+            plot.title=element_text(size=12, face="bold", color="black"))
+  return(p)
+}
+
+plotRandomDistribution <- function(Subtype.label = "I-F", dat = rh){
+  binwidth.val <- 200
+  distance.window <- 10000
+  ##store input variable for use later
+  input.dat <- dat
+  input.subtype <- Subtype.label
+  
+  dat <- dat%>%filter(Subtype == Subtype.label)
+  
+  dat <- dat%>%filter(spacer_order.num > 1)#%>%filter(protospacer.distance.num != -1)%>%filter(protospacer.distance.num != 1)%>%filter(protospacer.distance.num != -2)%>%filter(protospacer.distance.num != 2)%>%filter(protospacer.distance.num != -3)%>%filter(protospacer.distance.num != 3)
+  
+  dat <- dat%>%filter(protospacer.distance.num > -distance.window)%>%filter(protospacer.distance.num < distance.window)
+  ##get maximum count for the graphs
+  targets.dat.n0 <- dat%>%filter(Subtype == Subtype.label)
+  aa <- targets.dat.n0%>%filter(strand.plus.direction == "n_3")
+  bb <- targets.dat.n0%>%filter(strand.plus.direction == "n_5")
+  cc <- targets.dat.n0%>%filter(strand.plus.direction == "t_3")
+  dd <- targets.dat.n0%>%filter(strand.plus.direction == "t_5")
+  
+  bins.max <- max(c(max(hist(aa$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                    max(hist(bb$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                    max(hist(cc$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                    max(hist(dd$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts)))
+  
+  
+  dat <- dat%>%mutate(protospacer.distance.num = ifelse(target.strand == "t", ifelse(five.three.prime.dir == "3", protospacer.distance.num + binwidth.val/2,  protospacer.distance.num - binwidth.val/2),ifelse(five.three.prime.dir == "3", protospacer.distance.num - binwidth.val/2,  protospacer.distance.num + binwidth.val/2)))
+  
+  ##set up data for plotting
+  dat <- dat%>%mutate(protospacer.distance.num = ifelse(five.three.prime.dir == "3", protospacer.distance.num + binwidth.val/2,  protospacer.distance.num - binwidth.val/2))
+  dat <- dat%>%mutate(protospacer.distance.num = ifelse(target.strand == "t", protospacer.distance.num, protospacer.distance.num*(-1)))
+  
+  targets.dat.n0 <- dat%>%filter(Subtype == Subtype.label)
+  
+  
+  plot.title1 <- ifelse(distance.window != binwidth.val, paste("RANDOM DATA: Distribution of Subtype ", Subtype.label, " hits (", nrow(targets.dat.n0), " hits.)" , sep = ""),  paste("Quadrant distribution of Subtype ", Subtype.label, " hits (", nrow(targets.dat.n0), " hits)", sep = ""))
+  plot.subtitle <- ifelse(distance.window != binwidth.val, paste("Window size = ", distance.window, " nucleotides. \nBinwdith = ", binwidth.val, " nucleotides.", sep = ""),  paste("Window size = ", distance.window, " nucleotides.", sep = ""))    
+  
+  p <- ggplot() + 
+    geom_histogram(data=subset(targets.dat.n0, strand.plus.direction=="t_5"), binwidth = binwidth.val, aes(protospacer.distance.num, fill = "Target 5' direction", y= ..count..)) +
+    geom_histogram(data=subset(targets.dat.n0, strand.plus.direction=="t_3"), binwidth = binwidth.val, aes(protospacer.distance.num, fill = "Target 3' direction", y= ..count..)) +
+    geom_histogram(data=subset(targets.dat.n0, strand.plus.direction=="n_5"), binwidth = binwidth.val, aes(protospacer.distance.num, fill = "Non-target 5' direction", y= -..count..)) +
+    geom_histogram(data=subset(targets.dat.n0, strand.plus.direction=="n_3"), binwidth = binwidth.val, aes(protospacer.distance.num, fill = "Non-target 3' direction", y= -..count..)) +
+    #facet_wrap(~protospacer.distance.num)
+    scale_fill_hue("Group") +
+    ggtitle(label = plot.title1, subtitle = plot.subtitle) +
+    labs(x="Distance from oldest protospacer (nucleotides)",y="Number of hits") +
+    coord_cartesian(ylim = c(-bins.max - 3, bins.max + 3)) +
+    theme_bw() +
+    theme(axis.text.x=element_text(size=14),
+          axis.text.y=element_text(size=14),
+          plot.title=element_text(size=12, face="bold", color="black"))
+  return(p)
+}
+
+plotGenomeLengthDistribution <- function(Subtype.label = "I-F", dat = targets.dat){
+  binwidth.val <- 200
+  distance.window <- 10000
+  ##store input variable for use later
+  input.dat <- dat%>%filter(Subtype == Subtype.label)
+  input.subtype <- Subtype.label
+  
+  dat <- dat%>%filter(Subtype == Subtype.label)
+  
+  dat <- dat%>%filter(spacer_order.num > 1)#%>%filter(protospacer.distance.num != -1)%>%filter(protospacer.distance.num != 1)%>%filter(protospacer.distance.num != -2)%>%filter(protospacer.distance.num != 2)%>%filter(protospacer.distance.num != -3)%>%filter(protospacer.distance.num != 3)
+  
+  dat <- dat%>%filter(protospacer.distance.num > -xlim.num)%>%filter(protospacer.distance.num < xlim.num)
+  ##get maximum count for the graphs
+  targets.dat.n0 <- dat%>%filter(Subtype == Subtype.label)
+  aa <- targets.dat.n0%>%filter(strand.plus.direction == "n_3")
+  bb <- targets.dat.n0%>%filter(strand.plus.direction == "n_5")
+  cc <- targets.dat.n0%>%filter(strand.plus.direction == "t_3")
+  dd <- targets.dat.n0%>%filter(strand.plus.direction == "t_5")
+  
+  bins.max <- max(c(max(hist(aa$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                    max(hist(bb$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                    max(hist(cc$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts),
+                    max(hist(dd$protospacer.distance.num, breaks = (distance.window)/binwidth.val, plot = F)$counts)))
+  
+  ##set up data for plotting
+  dat <- dat%>%mutate(protospacer.distance.num = ifelse(five.three.prime.dir == "3", protospacer.distance.num + binwidth.val/2,  protospacer.distance.num - binwidth.val/2))
+  dat <- dat%>%mutate(protospacer.distance.num = ifelse(target.strand == "t", protospacer.distance.num, protospacer.distance.num*(-1)))
+  
+  targets.dat.n0 <- dat%>%filter(Subtype == Subtype.label)
+  
+  
+  plot.title1 <- ifelse(distance.window != binwidth.val, paste("RANDOM DATA: Distribution of Subtype ", Subtype.label, " hits (", nrow(targets.dat.n0), " hits.)" , sep = ""),  paste("Quadrant distribution of Subtype ", Subtype.label, " hits (", nrow(targets.dat.n0), " hits)", sep = ""))
+  plot.subtitle <- ifelse(distance.window != binwidth.val, paste("Window size = ", distance.window, " nucleotides. \nBinwdith = ", binwidth.val, " nucleotides.", sep = ""),  paste("Window size = ", distance.window, " nucleotides.", sep = ""))    
+  
+  GenomeEndDensities <- genome.ends.distr(Subtype.label = input.subtype, dat = input.dat)
+  GenomeEndDensities <- GenomeEndDensities%>%arrange(distance.breaks.short)
+  
+  xlim.num <- calculateXlimits(input.dat)
+  
+  p <- ggplot() + 
+    geom_path(data = GenomeEndDensities, aes(x = distance.breaks.short, y = density.values)) +
+    coord_cartesian(xlim = c(-xlim.num, xlim.num)) 
+    
+  
+
+  return(p)
+}
+
+calculateXlimits <- function(dat){
+  sdNumbers <- 2
+  ##get some of the oldest match information
+  pps.dat <- dat%>%filter(spacer_order.num == 1)%>%mutate(ppsToGenomeEnds = genome.length.num - target.start.num)
+  xlim.num <- max(c(mean(pps.dat$target.start.num) + sdNumbers*sd(pps.dat$target.start.num), 
+                    mean(pps.dat$ppsToGenomeEnds) + sdNumbers*sd(pps.dat$ppsToGenomeEnds)))
+  return(xlim.num)
+}
+
+genome.ends.distr <- function(Subtype.label = "I-F", dat = targets.dat){
+  
+  sdNumbers <- 2
+  
+  dat <- dat%>%mutate(ppsToGenomeEnds = genome.length.num - target.start.num)
+  pps.dat <- dat%>%filter(spacer_order.num == 1)
+  pps.dat <- pps.dat%>%filter(Subtype == Subtype.label)
+  xlim.num <- max(c(mean(pps.dat$target.start.num) + sdNumbers*sd(pps.dat$target.start.num), 
+                    mean(pps.dat$ppsToGenomeEnds) + sdNumbers*sd(pps.dat$ppsToGenomeEnds)))
+  binwidth.val <- mean(pps.dat$genome.length.num)/10
+  
+  D <- dat%>%filter(spacer_order.num > 1)%>%select(target.start.num, ppsToGenomeEnds)%>%mutate(data.type = "genome lengths")
+  
+  
+  GenomeStart <- D %>% group_by(data.type) %>% 
+    # calculate densities for each group over same range; store in list column
+    summarise(d = list(density(target.start.num, from = min(.$target.start.num), to = max(.$target.start.num), n = xlim.num/binwidth.val*2))) %>% 
+    # make a new data.frame from two density objects
+    do(data.frame(distance.breaks.short = .$d[[1]]$x,    # grab one set of x values (which are the same)
+                  density.values = .$d[[1]]$y))# %>%    # and subtract the y values
+  GenomeStart <- GenomeStart%>%mutate(distance.breaks.short = -distance.breaks.short)
+  
+  GenomeEnd <- D %>% group_by(data.type) %>% 
+    # calculate densities for each group over same range; store in list column
+    summarise(d = list(density(ppsToGenomeEnds, from = min(.$ppsToGenomeEnds), to = max(.$ppsToGenomeEnds), n = xlim.num/binwidth.val*2))) %>% 
+    # make a new data.frame from two density objects
+    do(data.frame(distance.breaks.short = .$d[[1]]$x,    # grab one set of x values (which are the same)
+                  density.values = .$d[[1]]$y))# %>%    # and subtract the y values
+  
+  den <- rbind(GenomeStart, GenomeEnd)
+  
+  return(den)
+
+}
+
+TargetsandRandomDensities <- function(D = rbind(sr, st), xlimit = xlim.num,   smoothing.value = "nrd0"
+){
+  
+  xlim.num <- xlimit
+  n_3.den <- D%>%filter(grepl("n_", strand.plus.direction))  %>% 
+    group_by(data.type) %>% 
+    # calculate densities for each group over same range; store in list column
+    summarise(d = list(density(protospacer.distance.num, from = -xlim.num, to = 0, n = xlim.num/binwidth.val, bw = smoothing.value))) %>% 
+    # make a new data.frame from two density objects
+    do(data.frame(distance.breaks.short = .$d[[1]]$x,    # grab one set of x values (which are the same)
+                  density.values.random_1 = .$d[[1]]$y,
+                  density.values.random_10 = .$d[[2]]$y,
+                  density.values.random_2 = .$d[[3]]$y,
+                  density.values.random_3 = .$d[[4]]$y,
+                  density.values.random_4 = .$d[[5]]$y,
+                  density.values.random_5 = .$d[[6]]$y,
+                  density.values.random_6 = .$d[[7]]$y,
+                  density.values.random_7 = .$d[[8]]$y,
+                  density.values.random_8 = .$d[[9]]$y,
+                  density.values.random_9 = .$d[[10]]$y,
+                  density.values.targets = .$d[[11]]$y))# %>%    # and subtract the y values
+  
+  n_5.den <- D%>%filter(grepl("n_", strand.plus.direction))%>% 
+    group_by(data.type) %>% 
+    # calculate densities for each group over same range; store in list column
+    summarise(d = list(density(protospacer.distance.num, from = 0, to = xlim.num, n = xlim.num/binwidth.val, bw = smoothing.value))) %>% 
+    # make a new data.frame from two density objects
+    do(data.frame(distance.breaks.short = .$d[[1]]$x,    # grab one set of x values (which are the same)
+                  density.values.random_1 = .$d[[1]]$y,
+                  density.values.random_10 = .$d[[2]]$y,
+                  density.values.random_2 = .$d[[3]]$y,
+                  density.values.random_3 = .$d[[4]]$y,
+                  density.values.random_4 = .$d[[5]]$y,
+                  density.values.random_5 = .$d[[6]]$y,
+                  density.values.random_6 = .$d[[7]]$y,
+                  density.values.random_7 = .$d[[8]]$y,
+                  density.values.random_8 = .$d[[9]]$y,
+                  density.values.random_9 = .$d[[10]]$y,
+                  density.values.targets = .$d[[11]]$y))# %>%    # and subtract the y values
+  t_3.den <- D%>%filter(grepl("t_", strand.plus.direction))%>% 
+    group_by(data.type) %>% 
+    # calculate densities for each group over same range; store in list column
+    summarise(d = list(density(protospacer.distance.num, from = 0, to = xlim.num, n = xlim.num/binwidth.val, bw = smoothing.value))) %>% 
+    # make a new data.frame from two density objects
+    do(data.frame(distance.breaks.short = .$d[[1]]$x,    # grab one set of x values (which are the same)
+                  density.values.random_1 = .$d[[1]]$y,
+                  density.values.random_10 = .$d[[2]]$y,
+                  density.values.random_2 = .$d[[3]]$y,
+                  density.values.random_3 = .$d[[4]]$y,
+                  density.values.random_4 = .$d[[5]]$y,
+                  density.values.random_5 = .$d[[6]]$y,
+                  density.values.random_6 = .$d[[7]]$y,
+                  density.values.random_7 = .$d[[8]]$y,
+                  density.values.random_8 = .$d[[9]]$y,
+                  density.values.random_9 = .$d[[10]]$y,
+                  density.values.targets = .$d[[11]]$y))# %>%    # and subtract the y values
+  
+  
+  t_5.den <- D%>%filter(grepl("t_", strand.plus.direction))%>% 
+    group_by(data.type) %>% 
+    # calculate densities for each group over same range; store in list column
+    summarise(d = list(density(protospacer.distance.num, from = -xlim.num, to = 0, n = xlim.num/binwidth.val, bw = smoothing.value))) %>% 
+    # make a new data.frame from two density objects
+    do(data.frame(distance.breaks.short = .$d[[1]]$x,    # grab one set of x values (which are the same)
+                  density.values.random_1 = .$d[[1]]$y,
+                  density.values.random_10 = .$d[[2]]$y,
+                  density.values.random_2 = .$d[[3]]$y,
+                  density.values.random_3 = .$d[[4]]$y,
+                  density.values.random_4 = .$d[[5]]$y,
+                  density.values.random_5 = .$d[[6]]$y,
+                  density.values.random_6 = .$d[[7]]$y,
+                  density.values.random_7 = .$d[[8]]$y,
+                  density.values.random_8 = .$d[[9]]$y,
+                  density.values.random_9 = .$d[[10]]$y,
+                  density.values.targets = .$d[[11]]$y))# %>%    # and subtract the y values
+  
+  n_3.den <- n_3.den%>%mutate(strand.plus.direction = "n_3")
+  n_5.den <- n_5.den%>%mutate(strand.plus.direction = "n_5")
+  t_3.den <- t_3.den%>%mutate(strand.plus.direction = "t_3")
+  t_5.den <- t_5.den%>%mutate(strand.plus.direction = "t_5")
+  
+#  colnames(n_3.den) <- colnames(n_3.den)
+#  colnames(n_5.den) <- colnames(n_3.den)
+#  colnames(t_3.den) <- colnames(n_3.den)
+#  colnames(t_5.den) <- colnames(n_3.den)
+  den <- rbind(n_3.den, n_5.den, t_3.den, t_5.den)
+#  den <- rbind(n_5.den, t_5.den)
+  
+  
+  rDen1 <- den%>%mutate(density.values = density.values.random_1)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_1")%>%mutate(group.main =  "random")
+  
+  rDen2 <- den%>%mutate(density.values = density.values.random_2)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_2")%>%mutate(group.main =  "random")
+  
+  rDen3 <- den%>%mutate(density.values = density.values.random_3)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_3")%>%mutate(group.main =  "random")
+  
+  rDen4 <- den%>%mutate(density.values = density.values.random_4)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_4")%>%mutate(group.main =  "random")
+  
+  rDen5 <- den%>%mutate(density.values = density.values.random_5)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_5")%>%mutate(group.main =  "random")
+  
+  rDen6 <- den%>%mutate(density.values = density.values.random_6)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_6")%>%mutate(group.main =  "random")
+  
+  rDen7 <- den%>%mutate(density.values = density.values.random_7)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_7")%>%mutate(group.main =  "random")
+  
+  rDen8 <- den%>%mutate(density.values = density.values.random_8)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_8")%>%mutate(group.main =  "random")
+  
+  rDen9 <- den%>%mutate(density.values = density.values.random_9)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_9")%>%mutate(group.main =  "random")
+  
+  rDen10 <- den%>%mutate(density.values = density.values.random_10)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "random_10")%>%mutate(group.main =  "random")
+  
+  
+  tDen <- den%>%mutate(density.values = density.values.targets)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group =  "targets")%>%mutate(group.main =  "targets")
+  
+  den <- rbind(rDen1,rDen2,rDen3,rDen4,rDen5,rDen6,rDen7,rDen8,rDen9,rDen10, tDen)
+  
+  den <- den%>%arrange(distance.breaks.short)
+  
+  
+  sdrandomDensity <- den%>%filter(group.main == "random")%>%group_by(distance.breaks.short, strand.plus.direction)%>%summarise(sdDensity = sd(density.values))%>%mutate(breaksStrandDirection = paste(distance.breaks.short, strand.plus.direction, sep = "$"))%>%ungroup()%>%select(-strand.plus.direction, - distance.breaks.short)
+  meanrandomDensity <- den%>%filter(group.main == "random")%>%group_by(distance.breaks.short, strand.plus.direction)%>%summarise(meanDensity = mean(density.values))%>%mutate(breaksStrandDirection = paste(distance.breaks.short, strand.plus.direction, sep = "$"))
+  randomDensity <- left_join(sdrandomDensity, meanrandomDensity, by = "breaksStrandDirection")
+  
+  randomDensity <- randomDensity%>%mutate(upperRandomDensity = meanDensity + 2*sdDensity)%>%mutate(lowerRandomDensity = meanDensity - 2*sdDensity)
+  targetDensity <- den%>%filter(group == "targets")
+  
+  upperRandomDensityValues <- randomDensity%>%mutate(density.values = upperRandomDensity)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group = "upperRandomDensity")%>%mutate(group.main = "random")
+  lowerRandomDensityValues <- randomDensity%>%mutate(density.values = lowerRandomDensity)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group = "lowerRandomDensity")%>%mutate(group.main = "random")
+  meanRandomDensityValues <- randomDensity%>%mutate(density.values = meanDensity)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group = "meanDensity")%>%mutate(group.main = "random")        
+  
+  den <- rbind(targetDensity, upperRandomDensityValues, lowerRandomDensityValues, meanRandomDensityValues)
+  return(den)
+}
+
+plotAdjustedDistribution <- function(dat = targets.dat, random.hits = rh,  Subtype.label = "I-B", smoothing.val = "nrd0"){
+  input.dat <- dat
+  input.subtype <- Subtype.label
+  
+
+  binwidth.val <- 150
+  xlim.num <- 10000
+  rd <- rh%>%filter(Subtype == Subtype.label)
+  td <- targets.dat%>%filter(Subtype == Subtype.label)
+  xlim.num <- 10000
+  sr <- rd%>%filter(protospacer.distance.num > -xlim.num)%>%filter(protospacer.distance.num < xlim.num)%>%filter(spacer_order.num > 1)
+  st <- td%>%filter(protospacer.distance.num > -xlim.num)%>%filter(protospacer.distance.num < xlim.num)%>%filter(spacer_order.num > 1)
+  
+  
+
+  sr <- sr%>%mutate(data.type = paste("random", group.number, sep = "_"))
+  
+  st <- st%>%mutate(data.type = "targets")%>%
+    mutate(strand = ifelse(strand.plus.direction == "n_5", "n", ifelse(strand.plus.direction == "n_3", "n", "t")))%>%
+    mutate(protospacer.distance.num = ifelse(strand == "n", -protospacer.distance.num, protospacer.distance.num))%>%
+    select(-strand)
+  
+  sr <- sr%>%select(protospacer.distance.num, data.type, strand.plus.direction)
+  st <- st%>%select(protospacer.distance.num, data.type, strand.plus.direction)
+  
+  den <- rbind(sr, st)
+  
+  den <- TargetsandRandomDensities(D = den, xlimit = xlim.num, smoothing.value = smoothing.val)
+  
+  targetDensities <- den%>%filter(group.main == "targets")%>%mutate(break.id = paste(distance.breaks.short, strand.plus.direction))%>%select(density.values, break.id)
+  randomDensities <- den%>%filter(group.main == "random")%>%mutate(break.id = paste(distance.breaks.short, strand.plus.direction))
+  
+  den <- left_join(randomDensities, targetDensities, by = "break.id", smoothing.value = smoothing.val)
+  
+  den <- den%>%mutate(density.values = density.values.y/density.values.x)
+  den <- den%>%mutate(group.main = "Adjusted Target Densities")
+  
+
+  den <- den%>%arrange(distance.breaks.short)
+  
+  plot.title1 <- paste("Subtype",Subtype.label)
+  plot.subtitle <- paste("Number of hits:", nrow(st))
+  
+  p <- suppressWarnings(ggplot() +
+                          geom_path(data = den%>%filter(grepl("t_", strand.plus.direction))%>%filter(group == "upperRandomDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group), linetype="dotted") +
+                          geom_path(data = den%>%filter(grepl("t_", strand.plus.direction))%>%filter(group == "lowerRandomDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group), linetype="dotted") +
+                          geom_path(data = den%>%filter(grepl("t_", strand.plus.direction))%>%filter(group == "meanDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group)) +
+                          geom_path(data = den%>%mutate(density.values = -density.values)%>%filter(grepl("n_", strand.plus.direction))%>%filter(group == "upperRandomDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group), linetype="dotted")+
+                          geom_path(data = den%>%mutate(density.values = -density.values)%>%filter(grepl("n_", strand.plus.direction))%>%filter(group == "lowerRandomDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group), linetype="dotted")+
+                          geom_path(data = den%>%mutate(density.values = -density.values)%>%filter(grepl("n_", strand.plus.direction))%>%filter(group == "meanDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group))+
+                                    geom_hline(yintercept = 1) +
+                                    geom_hline(yintercept = -1) +
+                                    geom_hline(yintercept = 0.5, linetype="dashed") +
+                                    geom_hline(yintercept = -0.5, linetype="dashed") +
+                                    geom_hline(yintercept = 2, linetype="dashed") +
+                                    geom_hline(yintercept = -2, linetype="dashed") +    
+                                    scale_fill_hue("Group") +
+                                    ggtitle(label = plot.title1, subtitle = plot.subtitle) +
+                                    labs(x="Distance from oldest protospacer (nucleotides)",y="Density of hits") +
+                                    coord_cartesian(ylim = c(-max(den$density.values)*1.1,max(den$density.values)*1.1),xlim = c(-xlim.num*1.1, xlim.num*1.1)) +
+                                    theme_bw() +
+                                    theme(axis.text.x=element_text(size=14),
+                                          axis.text.y=element_text(size=14),
+                                          plot.title=element_text(size=12, face="bold", color="black"))
+                                  
+                          )
+  
+  return(p)
+}
+
+
+
+plotProtospacerAndRandomDistribution <- function(dat = targets.dat, random.hits = rh,  Subtype.label = "I-B", smoothing.val = 150
+){
+  input.dat <- dat
+  input.subtype <- Subtype.label
+  
+  
+  binwidth.val <- 150
+  xlim.num <- 10000
+  xlimit <- xlim.num
+  binwidth <- binwidth.val
+  rd <- random.hits%>%filter(Subtype == Subtype.label)
+  td <- dat%>%filter(Subtype == Subtype.label)
+  sr <- rd%>%filter(protospacer.distance.num > -xlim.num)%>%filter(protospacer.distance.num < xlim.num)%>%filter(spacer_order.num > 1)
+  st <- td%>%filter(protospacer.distance.num > -xlim.num)%>%filter(protospacer.distance.num < xlim.num)%>%filter(spacer_order.num > 1)
+  
+  
+  
+  sr <- sr%>%mutate(data.type = paste("random", group.number, sep = "_"))%>%
+    mutate(data.type = ifelse(data.type == "random_1", "random_01", data.type))
+  
+  st <- st%>%mutate(data.type = "targets")%>%
+    mutate(strand = ifelse(strand.plus.direction == "n_5", "n", ifelse(strand.plus.direction == "n_3", "n", "t")))%>%
+    mutate(protospacer.distance.num = ifelse(strand == "n", -protospacer.distance.num, protospacer.distance.num))%>%
+    select(-strand)
+  
+  sr <- sr%>%select(protospacer.distance.num, data.type, strand.plus.direction)
+  st <- st%>%select(protospacer.distance.num, data.type, strand.plus.direction)
+  
+  den <- rbind(sr, st)
+  
+  den <- TargetsandRandomDensities(D = den, xlimit = xlim.num, smoothing.value = smoothing.val)
+  #den <- HitsDistribution(dat = den, xlim.num = xlimit, binwidth.val = binwidth)
+  plot.title1 <- paste("Subtype",Subtype.label)
+  plot.subtitle <- paste("Number of hits:", nrow(st))
+  
+  
+  
+  p <- suppressWarnings(ggplot() +
+                          geom_path(data = den%>%filter(grepl("t_", strand.plus.direction))%>%filter(group == "upperRandomDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group), linetype="dotted") +
+                          geom_path(data = den%>%filter(grepl("t_", strand.plus.direction))%>%filter(group == "lowerRandomDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group), linetype="dotted") +
+                          geom_path(data = den%>%filter(grepl("t_", strand.plus.direction))%>%filter(group == "meanDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group)) +
+                          geom_path(data = den%>%filter(grepl("t_", strand.plus.direction))%>%filter(group == "targets"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group)) +
+                          geom_path(data = den%>%mutate(density.values= -density.values)%>%filter(grepl("n_", strand.plus.direction))%>%filter(group == "upperRandomDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group), linetype="dotted")+
+                          geom_path(data = den%>%mutate(density.values= -density.values)%>%filter(grepl("n_", strand.plus.direction))%>%filter(group == "lowerRandomDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group), linetype="dotted")+
+                          geom_path(data = den%>%mutate(density.values= -density.values)%>%filter(grepl("n_", strand.plus.direction))%>%filter(group == "meanDensity"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group))+
+                          geom_path(data = den%>%mutate(density.values= -density.values)%>%filter(grepl("n_", strand.plus.direction))%>%filter(group == "targets"), aes(x = distance.breaks.short, y = density.values, fill = strand.plus.direction, colour = group.main, group = group)) +
+                          ggtitle(label = plot.title1, subtitle = plot.subtitle) +
+                          labs(x="Distance from oldest protospacer (nucleotides)",y="Density of hits") +
+                          theme_bw() +
+                          theme(axis.text.x=element_text(size=14),
+                                axis.text.y=element_text(size=14),
+                                plot.title=element_text(size=12, face="bold", color="black"))
+                        )
+  
+  
+  return(p)
+}
+
+
+random.hits.generate <- function(dat = targets.dat, loop.length = 100, set.seed.val = T){
+  
+  if(set.seed.val){
+  set.seed(100)  
+  }
+targets.dat.replicated <- dat[rep(seq_len(nrow(targets.dat)), loop.length), ]
+  #targets.dat.replicated%>%targets.dat.replicated%>%filter(spacer.order_num > 1)
+  random.hits <- targets.dat.replicated%>%
+  mutate(protospacer.distance.num = runif(min = -0.5, max = 0.5, n = nrow(targets.dat.replicated)))%>%
+  mutate(protospacer.distance.num = round(protospacer.distance.num*genome.length.num, 0))%>%
+  mutate(protospacer.distance.num = ifelse(spacer_order.num == 1, 0, protospacer.distance.num))%>%
+  mutate(target.strand = round(runif(min = 0, max = 1, n = nrow(targets.dat.replicated)), 0))%>%
+  mutate(target.strand = ifelse(target.strand == 1, "t", "n"))%>%
+  mutate(five.three.prime.dir = ifelse(protospacer.distance.num < 0, ifelse(target.strand == "t", 5, 3), ifelse(target.strand == "t", 3, 5)))%>%
+  mutate(strand.plus.direction = paste(target.strand, five.three.prime.dir, sep = "_"))%>%
+  mutate(target.start.num = runif(min = 0, max = 1, n = nrow(targets.dat.replicated)))%>%
+  mutate(target.start.num = round(target.start.num*genome.length.num, 0))
+  rm(targets.dat.replicated)
+  return(random.hits)
+}
+
+
+slidingWindow <- function(inputData = den, xlimit = xlim.num, binwidth = binwidth.val){
+
+  
+  
+  total.hits <- nrow(inputData)
+  inputData <- inputData%>%mutate(groupandPosition = paste(data.type, strand.plus.direction, sep = "$"))
+  
+  
+  hitPostionsMatrix<-matrix(list(),nrow = total.hits, ncol = 5)
+  
+  hitPostionsMatrix[,1] <- inputData$protospacer.distance.num
+  hitPostionsMatrix[,2] <- inputData$protospacer.distance.num - binwidth/2
+  hitPostionsMatrix[,3] <- inputData$protospacer.distance.num + binwidth/2
+  hitPostionsMatrix[,5] <- inputData$groupandPosition
+
+  
+  
+    i <- 1
+  for(i in 1:total.hits){
+    hitPostionsMatrix[[i, 4]] <- hitPostionsMatrix[[i, 2]]:hitPostionsMatrix[[i, 3]]
+  }
+
+    binsDat <- data.frame(slidingPositions = NA, Freq = NA, groupandPosition = NA)
+  for(i in unique(inputData$groupandPosition)){
+    dat <- hitPostionsMatrix[hitPostionsMatrix[, 5]== i,]
+    hits.count <- nrow(dat)
+    
+    slidingPositions <- sort(unlist(dat[,4]))
+    
+    binsDatTmp <- as.data.frame(table(slidingPositions))
+    
+    if(grepl("t_5", dat[1, 5])){
+      binsDatTmp <- suppressWarnings(left_join( data.frame(slidingPositions = as.character((-xlimit + binwidth/2):(-binwidth/2))), binsDatTmp, "slidingPositions"))
+    }
+    
+    if(grepl("n_5", dat[1, 5])){
+      binsDatTmp <- suppressWarnings(left_join( data.frame(slidingPositions = as.character((binwidth/2):(xlimit - binwidth/2))), binsDatTmp, "slidingPositions"))
+    }
+    
+    if(grepl("t_3", dat[1, 5])){
+      binsDatTmp <- suppressWarnings(left_join( data.frame(slidingPositions = as.character((binwidth/2):(xlimit - binwidth/2))), binsDatTmp, "slidingPositions"))
+    }
+    
+    if(grepl("n_3", dat[1, 5])){
+      binsDatTmp <- suppressWarnings(left_join( data.frame(slidingPositions = as.character((-xlimit + binwidth/2):(-binwidth/2))), binsDatTmp, "slidingPositions"))
+    }
+    
+    binsDatTmp <- binsDatTmp%>%mutate(groupandPosition = rep(i, nrow(binsDatTmp)))
+    
+    binsDat <- rbind(binsDat, binsDatTmp)
+    
+  }
+  binsDat <- binsDat%>%
+    mutate(distance.breaks.short = as.numeric(slidingPositions))%>%mutate(Freq = ifelse(is.na(Freq), 0, Freq))%>%
+    mutate(density.values= Freq/total.hits)%>%
+    select(-slidingPositions)%>%
+    arrange(distance.breaks.short)
+    
+  
+  return(binsDat)
+    
+}
+
+HitsDistribution <- function(dat = den, xlim.num = xlimit, binwidth.val = binwidth){
+  binsDat <- slidingWindow(inputData = dat, xlimit = xlim.num, binwidth = binwidth.val)
+  rDen <- binsDat%>%filter(grepl("random", groupandPosition))%>%select(distance.breaks.short, density.values, groupandPosition)%>%mutate(group.main =  "random")
+  tDen <- binsDat%>%filter(grepl("targets", groupandPosition))%>%select(distance.breaks.short, density.values, groupandPosition)%>%mutate(group.main =  "targets")
+  binsDat <- rbind(rDen, tDen)
+  binsDat <- binsDat%>%arrange(distance.breaks.short)
+  binsDat <- separate(binsDat, col = groupandPosition, into = c("group", "strand.plus.direction"), sep = "\\$")
+  sdrandomDensity <- binsDat%>%filter(group.main == "random")%>%
+    group_by(distance.breaks.short, strand.plus.direction)%>%
+    summarise(sdDensity = sd(density.values))%>%
+    mutate(breaksStrandDirection = paste(distance.breaks.short, strand.plus.direction, sep = "_"))%>%
+    ungroup()%>%select(-strand.plus.direction, - distance.breaks.short)
+  meanrandomDensity <- binsDat%>%filter(group.main == "random")%>%group_by(distance.breaks.short, strand.plus.direction)%>%summarise(meanDensity = mean(density.values))%>%mutate(breaksStrandDirection = paste(distance.breaks.short, strand.plus.direction, sep = "_"))
+  randomDensity <- left_join(sdrandomDensity, meanrandomDensity, by = "breaksStrandDirection")
+  randomDensity <- randomDensity%>%mutate(upperRandomDensity = meanDensity + 2*sdDensity)%>%mutate(lowerRandomDensity = meanDensity - 2*sdDensity)
+  targetDensity <- binsDat%>%filter(group.main == "targets")
+  
+  targetsDensityTotal <- sum(targetDensity$density.values)
+  randomDensityTotal <- sum(randomDensity$meanDensity)
+  
+  targetDensity <- targetDensity%>%
+    mutate(density.values = density.values/targetsDensityTotal)
+  randomDensity <- randomDensity%>%
+    mutate(meanDensity = meanDensity/randomDensityTotal)%>%
+    mutate(upperRandomDensity = upperRandomDensity/randomDensityTotal)%>%
+    mutate(lowerRandomDensity = lowerRandomDensity/randomDensityTotal)
+  
+  
+  
+  
+  upperRandomDensityValues <- randomDensity%>%mutate(density.values= upperRandomDensity)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group = "upperRandomDensity")%>%mutate(group.main = "random")
+  lowerRandomDensityValues <- randomDensity%>%mutate(density.values= lowerRandomDensity)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group = "lowerRandomDensity")%>%mutate(group.main = "random")
+  meanRandomDensityValues <- randomDensity%>%mutate(density.values= meanDensity)%>%select(distance.breaks.short, density.values, strand.plus.direction)%>%mutate(group = "meanDensity")%>%mutate(group.main = "random")        
+  
+
+
+  binsDat <- rbind(targetDensity, upperRandomDensityValues, lowerRandomDensityValues, meanRandomDensityValues)
+  return(binsDat)
+}
+
+
+
+subsetDataSummary <- function(subsetDat = assembySummary, column.type = columns){
+  subsetList <- vector("list", length(column.type))
+  j <- 1
+  for(j in 1:length(column.type)){
+    i <- column.type[j]
+   if(i == "Genomes"){
+     subsetList[[j]] <- c(i, nrow(subsetDat))
+   }
+   if(i == "Arrays"){
+     subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(arrays.present)))
+     
+   }
+   if(i == "Subtypes"){
+     subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(subtype.present)))
+     
+   }
+    if(i == "Genes"){
+      subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(proteins.present)))
+      
+    }
+    if(i == "Number of Spacers"){
+      subsetList[[j]] <- c(i, sum(subsetDat$n.of.spacers, na.rm = T))
+      
+    }
+    if(i == "Number of Arrays"){
+      subsetList[[j]] <- c(i, sum(subsetDat$n.of.arrays, na.rm = T))
+      
+    }
+    if(i == "Subtypes and arrays"){
+      subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(array.and_subtype == "True System")))
+      
+    }
+    if(i == "Single Subtypes"){
+      subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(single.system)))
+      
+    }
+    
+    ##Add these when I have the subsetData frame to look at
+    if(i == "Hits"){
+      subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(subtype.present)))
+      
+    }
+    if(i == "Phage Genomes"){
+      subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(subtype.present)))
+      
+    }
+    if(i == "Host Genomes"){
+      subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(subtype.present)))
+      
+    }
+    if(i == "Host-target pairs"){
+      subsetList[[j]] <- c(i, nrow(subsetDat%>%filter(subtype.present)))
+      
+    }
+    
+    
+  }
+  
+
+ return(subsetList)
+}
+dataSummary <- function(dat = assembySummary, column.type = columns, data.subset = data.types){
+  
+  summaryList <- vector("list", length(data.subset))
+  for(i in 1:length(data.subset)){
+    j <- data.subset[i]
+    if(j == "All"){
+      summaryList[[j]] <- subsetDataSummary(subsetDat = dat, column.type = column.type)
+    }
+    if(j == "Representative"){
+      summaryList[[j]] <- subsetDataSummary(subsetDat = dat%>%filter(refseq_category == "representative genome"), column.type = column.type)
+      
+    }
+    if(j == "Complete"){
+      summaryList[[j]] <- subsetDataSummary(subsetDat = dat%>%filter(assembly_level == "Complete Genome"), column.type = column.type)
+      
+    }
+  }
+  
+  summaryTable <- data.frame(matrix(unlist(summaryList), nrow = length(column.type)*2, byrow = F))
+  summaryTable <- summaryTable%>%filter(is.na(match(X1, column.type)))  
+  rownames(summaryTable) <- column.type
+  colnames(summaryTable) <- data.subset
+  return(summaryTable)
+  
+}
+
+```
+
+```{r analysis, echo=F, results='asis'}
+archaeal_cas_genes_genomes <- read.table("~/Desktop/Project/identifycasproteins/genomes_with_cas_proteins_archaea_refseq_79_gff_metadata.txt", sep = "\t", comment.char = "", fill = T, header = T)
+bacterial_cas_genes_genomes <- read.table("~/Desktop/Project/identifycasproteins/genomes_with_cas_proteins_bacteria_refseq_79_gff_metadata.txt", sep = "\t", comment.char = "", fill = T, header = T)
+cas_genes_genomes <- rbind(archaeal_cas_genes_genomes, bacterial_cas_genes_genomes)
+
+cas_genes_genomes <- cas_genes_genomes%>%mutate(subtypes = ifelse(subtypes == ",CAS-I-E, OTHER?", "CAS-I-E", subtypes))%>%mutate(subtypes = ifelse(subtypes == ",CAS-I-F, OTHER?", "CAS-I-F", subtypes))%>%mutate(first.letter.subtypes = substr(subtypes, 1, 1))%>%mutate(subtypes = ifelse(first.letter.subtypes == ",", substr(subtypes, 2, nchar(subtypes)), subtypes))%>%mutate(subtypes.split = strsplit(subtypes, ","))%>%mutate(single.system.y.n = ifelse(substr(subtypes.split, 1, 2) == "c(", F, ifelse(substr(subtypes.split, 1, 2) == "ch", F, T)))%>%select(-subtypes.split)
+
+##number of genomes total
+n.of.genomes <- nrow(cas_genes_genomes)
+
+##number of genomes with cas genes
+n.of.cas.genomes <- nrow(cas_genes_genomes%>%filter(!is.na(genes)))
+
+##number of genomes with identifiable subtype/s
+n.of.subtype.genomes <- nrow(cas_genes_genomes%>%filter(subtypes!= ""))
+
+##number of genomes with a single subtype
+n.of.single.system <- nrow(cas_genes_genomes%>%filter(single.system.y.n == T))
+single.systems <- cas_genes_genomes%>%filter(single.system.y.n == T)
+
+##import the array data
+archaeal.array.data <- read.table("~/Desktop/Project/identifycasproteins/archaea_refseq_79.CRISPRDetect.txt", sep = "\t", comment.char = "#", fill = T, header = F)
+bacterial.array.data <- read.table("~/Desktop/Project/identifycasproteins/bacteria_refseq_79.CRISPRDetect.txt", sep = "\t", comment.char = "#", fill = T, header = F)
+IE.IF.array.data <- read.table("~/Desktop/Project/identifycasproteins/test.txt", sep = "\t", comment.char = "#", fill = T, header = F)
+array.dat <- rbind(archaeal.array.data, bacterial.array.data, IE.IF.array.data)
+colnames(array.dat) <- c("Position_array.name", "Repeat", "percent.id_array.direction", "Spacer", "Repeat_Sequence", "Spacer_Sequence", "Insertion/Deletion")
+array.names <- array.dat%>%mutate(first.letter = substr(Position_array.name, 1, 1))%>%filter(first.letter == ">")
+
+
+##number of contigs with arrays
+n.of.contigs.with.arrays <- length(unique(array.names$Position_array.name))
+
+##number of arrays
+n.of.arrays <- length(array.names$Position_array.name)
+
+
+array.dat <- array.dat%>%filter(Repeat != "Repeat")%>%filter(percent.id_array.direction != "")%>%filter(Position_array.name != "==========")%>%mutate(first.letter = substr(Position_array.name, 1, 1))%>%mutate(spacer.row = ifelse(first.letter == ">", "Genome name", ifelse(first.letter == "A", "Spacer name", "Spacer sequence")))
+
+n.of.spacers <- nrow(array.dat%>%filter(spacer.row == "Spacer sequence"))
+n.of.spacers.nr <- nrow(unique(array.dat%>%filter(spacer.row == "Spacer sequence")%>%select(Spacer_Sequence)))
+
+##get subtype data for each spacer
+mat <- separate(array.names, Position_array.name ,c("host","Subtype","Genome"), sep = "\\|", remove = F, extra = "drop")
+array.names <- mat%>%select(-host, -Genome)
+
+##import spacer data
+spacer.dat <- read.table("~/Desktop/Project/identifycasproteins/refseq_79.spacer.dat.txt", sep = "\t", comment.char = "", fill = T, header = F)
+colnames(spacer.dat) <- c("spacer.id", "spacer.seq")
+spacer.dat <- spacer.dat%>%mutate(spacer.length = nchar(spacer.seq))
+
+
+##get subtype data for each spacer
+mat <- separate(spacer.dat, spacer.id ,c("host","Subtype","Genome","i2","i3"), sep = "\\|", remove = F)
+mat <- separate(mat, i3 ,c("array.and.spacer.number"), sep = "[", remove = T)
+spacer.dat <- mat%>%select(-host, -i2, -i3, -Genome)
+
+##number of spacers
+n.of.spacers.for.swipe <- nrow(spacer.dat)
+
+
+##swipe output numbers
+targets.dat <- read.table("~/Desktop/Project/CRISPRClustering/refseq_79.all.swipe_summary.no_quotes", comment.char = "", fill = T, sep = "\t", header = T, quote = "")
+IE.dat <- read.table("~/Desktop/Project/CRISPRClustering/refseq_79.IE.IF.swipe_summary", comment.char = "", fill = T, sep = "\t", header = T, quote = "")
+
+targets.dat <- rbind(targets.dat, IE.dat)
+
+n.of.spacers.out <- nrow(unique(targets.dat%>%select(Genome, array.num, spacer.num)))
+n.of.arrays.out <- nrow(unique(targets.dat%>%select(Genome, array.num)))
+n.of.hosts.out <- nrow(unique(targets.dat%>%select(Genome)))
+n.of.protospacers.out <- nrow(unique(targets.dat%>%select(target.acc., target.start.num, target.end.num)))
+n.of.targets.out <- nrow(unique(targets.dat%>%select(target.acc.)))
+n.of.host.targets.out <- nrow(unique(targets.dat%>%select(target.acc., Genome)))
+
+
+
+##combine all summary data into dataframe and print table
+summary.dat <- data.frame(Counts = c(n.of.genomes, n.of.cas.genomes, n.of.subtype.genomes, n.of.single.system, n.of.contigs.with.arrays, n.of.arrays, n.of.spacers.for.swipe, n.of.hosts.out, n.of.arrays.out, n.of.spacers.out, n.of.targets.out, n.of.protospacers.out, n.of.host.targets.out ))
+rownames(summary.dat) <- c("Number of genomes", "Number of genomes with cas genes", "Number of genomes with at least one identifiable subtype", "Number of genomes with a single system", "Number of contigs with arrays", "Number of arrays", "Number of spacers", "Number of genomes (protospacer results)", "Number of arrays (protospacer results)", "Number of spacers (protospacer results)", "Number of target genomes (protospacer results)", "Number of protospacers (protospacer results)", "Number of host/target pairs (protospacer results)")
+summary.tab <- xtable(summary.dat, caption=('Genome analysis summary'))
+print(summary.tab, type="latex", caption.placement='top', comment=FALSE)
+
+
+##get information about each individual subtype and print table
+subtype.genomes <- as.data.frame(table(single.systems$subtypes))
+colnames(subtype.genomes) <- c("Subtype", "Number.of.Genomes.num")
+subtype.genomes <- subtype.genomes%>%mutate(Subtype = substr(Subtype, 5, nchar(Subtype)))
+
+subtype.arrays <- as.data.frame(table(array.names$Subtype))
+colnames(subtype.arrays) <- c("Subtype", "Number.of.Arrays.num")
+
+subtype.spacers <- as.data.frame(table(spacer.dat$Subtype))
+colnames(subtype.spacers) <- c("Subtype", "Number.of.Spacers.num")
+
+subtype.dat <- left_join(subtype.genomes, subtype.arrays, by = "Subtype")
+subtype.dat <- left_join(subtype.dat, subtype.spacers, by = "Subtype")
+subtype.dat <- subtype.dat%>%mutate(arrarys.per.genome = round(Number.of.Arrays.num/Number.of.Genomes.num, 2))%>%mutate(spacers.per.genome = round(Number.of.Spacers.num/Number.of.Genomes.num, 2))%>%mutate(spacers.per.arrays = round(Number.of.Spacers.num/Number.of.Arrays.num, 2))
+
+colnames(subtype.dat) <- c("Subtype", "# genomes", "# arrays", "# spacers", "arrays/genome", "spacers/genome", "spacers/array")
+subtype.tab <- xtable(subtype.dat, caption=('Subtypes Summary'))
+print(subtype.tab, type="latex", caption.placement='top', comment=FALSE, include.rownames=FALSE)
+
+##get subtype data for the swipe output and print table
+subtype.genomes.out <- targets.dat%>%group_by(Subtype)%>%summarise(host.count = length(unique(Genome)))
+subtype.arrays.out <- targets.dat%>%mutate(array.id = paste(Genome, array.num, sep = ""))%>%group_by(Subtype)%>%summarise(array.count = length(unique(array.id)))
+subtype.spacers.out <- targets.dat%>%mutate(spacer.id = paste(Genome, array.num, spacer.num, sep = ""))%>%group_by(Subtype)%>%summarise(spacer.count = length(unique(spacer.id)))
+subtype.targets.out <- targets.dat%>%group_by(Subtype)%>%summarise(target.count = length(unique(target.acc.)))
+subtype.protospacers.out <- targets.dat%>%mutate(protospacer.id = paste(target.acc., target.start.num, sep = ""))%>%group_by(Subtype)%>%summarise(protospacer.count = length(unique(protospacer.id)))
+subtype.host.target.out <- targets.dat%>%mutate(host.target.id = paste(target.acc., Genome, sep = ""))%>%group_by(Subtype)%>%summarise(host.target.count = length(unique(host.target.id)))
+
+subtype.dat.out <- left_join(subtype.genomes.out, subtype.arrays.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.spacers.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.targets.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.protospacers.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.host.target.out, by = "Subtype")
+
+subtype.dat.out <- subtype.dat.out%>%mutate(arrarys.per.genome = round(array.count/host.count, 2))%>%mutate(spacers.per.genome = round(spacer.count/host.count, 2))%>%mutate(spacers.per.arrays = round(spacer.count/array.count, 2))%>%mutate(protospacers.target.genome = round(protospacer.count/target.count, 2))%>%mutate(protospacers.spacer = round(protospacer.count/spacer.count, 2))%>%mutate(target.genomes.host.genome = round(target.count/host.count, 2))
+
+colnames(subtype.dat.out) <- c("Subtype", "# genomes", "# arrays", "# spacers", "# target genomes", "# protospacers", "# host/target pairs", "arrays/genome", "spacers/genome", "spacers/array", "protospacers/target", "protospacers/spacer", "targets/host")
+
+subtype.summary.out <- subtype.dat.out%>%select(`Subtype`, `# genomes`, `# arrays`, `# spacers`, `# target genomes`, `# protospacers`, `# host/target pairs`)
+
+subtype.tab.out <- xtable(subtype.summary.out, caption=('Subtypes Summary (Protospacer results)'))
+print(subtype.tab.out, type="latex", caption.placement='top', comment=FALSE, include.rownames=FALSE)
+
+
+subtype.comp.out <- subtype.dat.out%>%select(Subtype, `arrays/genome`, `spacers/genome`, `spacers/array`, `protospacers/target`, `protospacers/spacer`, `targets/host`)
+
+subtype.tab.comp.out <- xtable(subtype.comp.out, caption=('Subtypes comparison (Protospacer results)'))
+print(subtype.tab.comp.out, type="latex", caption.placement='top', comment=FALSE, include.rownames=FALSE)
+
+
+##get subtype data for results before filtering and print table
+targets.dat <-  read.table("~/Desktop/Project/CRISPRClustering/refseq_79.swipe.no_duplicates", comment.char = "", fill = T, sep = "\t", header = T)
+targets.dat.2 <-  read.table("~/Desktop/Project/CRISPRClustering/refseq_79.swipe.one_duplicate_pps", comment.char = "", fill = T, sep = "\t", header = T)
+targets.dat.2 <- targets.dat.2%>%select(-pps.spacer.duplicated)
+targets.dat <- rbind(targets.dat, targets.dat.2)
+
+
+subtype.genomes.out <- targets.dat%>%group_by(Subtype)%>%summarise(host.count = length(unique(Genome)))
+subtype.arrays.out <- targets.dat%>%mutate(array.id = paste(Genome, array.num, sep = ""))%>%group_by(Subtype)%>%summarise(array.count = length(unique(array.id)))
+subtype.spacers.out <- targets.dat%>%mutate(spacer.id = paste(Genome, array.num, spacer.num, sep = ""))%>%group_by(Subtype)%>%summarise(spacer.count = length(unique(spacer.id)))
+subtype.targets.out <- targets.dat%>%group_by(Subtype)%>%summarise(target.count = length(unique(target.acc.)))
+subtype.protospacers.out <- targets.dat%>%mutate(protospacer.id = paste(host.target.pair, array.num, spacer.num, sep = ""))%>%group_by(Subtype)%>%summarise(protospacer.count = length(unique(protospacer.id)))
+subtype.host.target.out <- targets.dat%>%mutate(host.target.id = paste(target.acc., Genome, sep = ""))%>%group_by(Subtype)%>%summarise(host.target.count = length(unique(host.target.id)))
+
+subtype.dat.out <- left_join(subtype.genomes.out, subtype.arrays.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.spacers.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.targets.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.protospacers.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.host.target.out, by = "Subtype")
+
+subtype.dat.out <- subtype.dat.out%>%mutate(arrarys.per.genome = round(array.count/host.count, 2))%>%mutate(spacers.per.genome = round(spacer.count/host.count, 2))%>%mutate(spacers.per.arrays = round(spacer.count/array.count, 2))%>%mutate(protospacers.target.genome = round(protospacer.count/target.count, 2))%>%mutate(protospacers.spacer = round(protospacer.count/spacer.count, 2))%>%mutate(target.genomes.host.genome = round(target.count/host.count, 2))
+
+colnames(subtype.dat.out) <- c("Subtype", "# genomes", "# arrays", "# spacers", "# target genomes", "# protospacers", "# host/target pairs", "arrays/genome", "spacers/genome", "spacers/array", "protospacers/target", "protospacers/spacer", "targets/host")
+
+subtype.summary.out <- subtype.dat.out%>%select(`Subtype`, `# genomes`, `# arrays`, `# spacers`, `# target genomes`, `# protospacers`, `# host/target pairs`)
+
+subtype.tab.out <- xtable(subtype.summary.out, caption=('Subtypes Summary (Results before filtering)'))
+print(subtype.tab.out, type="latex", caption.placement='top', comment=FALSE, include.rownames=FALSE)
+
+
+subtype.comp.out <- subtype.dat.out%>%select(Subtype, `arrays/genome`, `spacers/genome`, `spacers/array`, `protospacers/target`, `protospacers/spacer`, `targets/host`)
+
+subtype.tab.comp.out <- xtable(subtype.comp.out, caption=('Subtypes comparison (Results before filtering)'))
+print(subtype.tab.comp.out, type="latex", caption.placement='top', comment=FALSE, include.rownames=FALSE)
+
+
+##get subtype data for the filtered results and print table
+targets.dat <-  read.table("~/Desktop/Project/CRISPRClustering/refseq_79.swipe.one_target_genome.test", comment.char = "", fill = T, sep = "\t", header = T)
+
+targets.dat.2 <-  read.table("~/Desktop/Project/CRISPRClustering/refseq_79.swipe.one_duplicate.protospacer.test", comment.char = "", fill = T, sep = "\t", header = T)
+
+
+targets.dat <- rbind(targets.dat, targets.dat.2)
+
+subtype.genomes.out <- targets.dat%>%group_by(Subtype)%>%summarise(host.count = length(unique(Genome)))
+subtype.arrays.out <- targets.dat%>%mutate(array.id = paste(Genome, array.num, sep = ""))%>%group_by(Subtype)%>%summarise(array.count = length(unique(array.id)))
+subtype.spacers.out <- targets.dat%>%mutate(spacer.id = paste(Genome, array.num, spacer.num, sep = ""))%>%group_by(Subtype)%>%summarise(spacer.count = length(unique(spacer.id)))
+subtype.targets.out <- targets.dat%>%group_by(Subtype)%>%summarise(target.count = length(unique(target.acc.)))
+subtype.protospacers.out <- targets.dat%>%mutate(protospacer.id = paste(host.target.pair, array.num, spacer.num, sep = ""))%>%group_by(Subtype)%>%summarise(protospacer.count = length(unique(protospacer.id)))
+subtype.host.target.out <- targets.dat%>%mutate(host.target.id = paste(target.acc., Genome, sep = ""))%>%group_by(Subtype)%>%summarise(host.target.count = length(unique(host.target.id)))
+
+subtype.dat.out <- left_join(subtype.genomes.out, subtype.arrays.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.spacers.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.targets.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.protospacers.out, by = "Subtype")
+subtype.dat.out <- left_join(subtype.dat.out, subtype.host.target.out, by = "Subtype")
+
+subtype.dat.out <- subtype.dat.out%>%mutate(arrarys.per.genome = round(array.count/host.count, 2))%>%mutate(spacers.per.genome = round(spacer.count/host.count, 2))%>%mutate(spacers.per.arrays = round(spacer.count/array.count, 2))%>%mutate(protospacers.target.genome = round(protospacer.count/target.count, 2))%>%mutate(protospacers.spacer = round(protospacer.count/spacer.count, 2))%>%mutate(target.genomes.host.genome = round(target.count/host.count, 2))
+
+colnames(subtype.dat.out) <- c("Subtype", "# genomes", "# arrays", "# spacers", "# target genomes", "# protospacers", "# host/target pairs", "arrays/genome", "spacers/genome", "spacers/array", "protospacers/target", "protospacers/spacer", "targets/host")
+
+subtype.summary.out <- subtype.dat.out%>%select(`Subtype`, `# genomes`, `# arrays`, `# spacers`, `# target genomes`, `# protospacers`, `# host/target pairs`)
+
+subtype.tab.out <- xtable(subtype.summary.out, caption=('Subtypes Summary (Filtered results)'))
+print(subtype.tab.out, type="latex", caption.placement='top', comment=FALSE, include.rownames=FALSE)
+
+
+subtype.comp.out <- subtype.dat.out%>%select(Subtype, `arrays/genome`, `spacers/genome`, `spacers/array`, `protospacers/target`, `protospacers/spacer`, `targets/host`)
+
+subtype.tab.comp.out <- xtable(subtype.comp.out, caption=('Subtypes comparison (Filtered results)'))
+print(subtype.tab.comp.out, type="latex", caption.placement='top', comment=FALSE, include.rownames=FALSE)
+
+dat <- spacer.dat
+#mat <- separate(dat, spacer.id ,c("host","Subtype","Genome","i2","i3"), sep = "\\|", remove = F)
+
+mat <- separate(dat, spacer.id ,c("host","i2","Genome","array.length","i1"), sep = "\\|", remove = F)
+mat <- separate(mat, i1 ,c("array.and.spacer.number","i3"), sep = "\\[", remove = T)%>%select(-i2, -i3)
+mat <- separate(mat, array.and.spacer.number ,c("Array.number","Spacer.number"), sep = "_", remove = T)%>%
+  mutate(Spacer.number = as.numeric(Spacer.number))%>%
+  mutate(Array.number = as.numeric(Array.number))
+
+
+array.counts <- mat%>%group_by(Genome)%>%summarise(Array.count = length(unique(Array.number)))#%>%mutate(Spacer.count = max(Spacer.number))
+spacer.counts <- mat%>%group_by(Genome, Array.number)%>%
+  summarise(x = length(unique(Spacer.number)))%>%
+  ungroup()%>%group_by(Genome)%>%summarise(Spacer.count = sum(as.numeric(x)))
+counts <- left_join(array.counts, spacer.counts, by = "Genome")
+
+counts <- counts%>%mutate(spacers.per.array = as.numeric(Spacer.count)/as.numeric(Array.count))
+
+subtype.labels <- mat%>%select(Genome, Subtype)
+subtype.labels <- unique(subtype.labels)
+
+counts <- left_join(counts, subtype.labels, by = "Genome")
+
+aa <- counts%>%select(Genome, Spacer.count, Subtype)
+bb <- counts%>%select(Genome, spacers.per.array, Subtype)
+colnames(bb) <- colnames(aa)
+aa <- aa%>%mutate(Data = "Spacers per Genome")
+bb <- bb%>%mutate(Data = "Spacers per Array")
+cc <- rbind(aa, bb)
+
+ggplot() + 
+  geom_boxplot(data=cc, aes(y = Spacer.count, x = Subtype, fill = `Data`)) +
+  scale_y_continuous(limits = quantile(cc$Spacer.count, c(0, 0.9))) +
+  theme_bw() +
+  ggtitle("Boxplot of the number of spacers found in genomes by subtype")
+
+ggplot() + 
+  geom_boxplot(data=counts, aes(y = Array.count, x = Subtype, fill = Subtype)) +
+  theme_bw() +
+  ggtitle("Boxplot of the number of arrays found in genomes by subtype")
+
+rh <- random.hits.generate()
+
+```
+
+
+```{r analysis_2, echo=F, eval=F}
+
+assembySummary <- read.table("~/Desktop/Project/identifycasproteins/assembly_summary_refseq83_all.txt", header = T, sep = '\t', comment.char = "", as.is = T, fill = T, quote = "")
+assembySummary <- assembySummary%>%filter(protein.count >= 0)
+
+spacersFna <- read.table("~/Desktop/Project/identifycasproteins/all_CRISPRDetect_refseq_83.fna", fill = T, comment.char = "#", quote = "")
+spacersFna <- spacersFna%>%filter(V2 != "")
+
+##separate out the information from the spacer id
+mat <- separate(spacersFna, V1,c("i1","i2","i3"), sep = "\\|", remove = F)
+mat <- separate(mat, i1,c("contig","Organism"), sep = "-", remove = T, extra = "merge")
+mat <- mat%>%filter(grepl("#", contig)  == F)
+mat <- separate(mat, i2,c("array.start.num","array.stop.num"), sep = "-", remove = T)
+mat <- separate(mat, i3,c("i5", "i6"), sep = "\\[", remove = T, extra = "drop")
+mat <- separate(mat, i5,c("array.num","spacer.num"), sep = "_", remove = T, extra = "merge")
+mat <- separate(mat, i6,c("left.flank.num","right.flank.num", "array.score.num", "Taxonomy"), sep = "_", remove = T, extra = "drop")
+spacersFna <- mat%>%mutate(contig = substr(contig, 2, nchar(as.character(contig))))
+
+spacerLocations <- read.table("~/Desktop/Project/identifycasproteins/CRISPRDetect_file_locations_refseq_83.txt", fill = T, comment.char = "", quote = "", header = F)
+spacerLocations <- separate(spacerLocations, V1, into = c("i1","mnt", "SSD", "CD_Tracr_Cas9", "domainName", "letter", "i2", "i3"), sep = "/", remove = F)
+spacerLocations <- separate(spacerLocations, i2, into = c("Genome", "assembly_accession"), sep = "\\#", extra = "merge")
+spacerLocations <- separate(spacerLocations, assembly_accession, into = c("i4", "i5"), sep = "\\#", extra = "merge", remove = F)
+spacerLocations <- spacerLocations%>%mutate(assembly_accession = ifelse(is.na(i5), assembly_accession, i5))%>%select(-i1, -i4, -i5, -mnt, -SSD, -CD_Tracr_Cas9)
+spacerLocations <- spacerLocations%>%mutate(contig = substr(i3, 1, nchar(as.character(i3)) - 11))%>%select(-i3)
+spacerLocations <- spacerLocations%>%mutate(domainName = ifelse(grepl("bacteria", domainName), "Bacteria", "Archaea"))
+
+spacersFna <- left_join(spacersFna, spacerLocations, "contig")
+
+spacerSubtypes <- left_join(spacersFna, assembySummary%>%select(assembly_accession, subtype.list, single.system)%>%distinct(), by = "assembly_accession")
+
+spacerSubtypes <- spacerSubtypes%>%filter(single.system)%>%select(V1.x, V2)
+
+
+array.counts <- spacersFna%>%filter(spacer.num == 1)%>%group_by(assembly_accession)%>%summarise(n.of.arrays = n())
+spacer.counts <- spacersFna%>%group_by(assembly_accession)%>%summarise(n.of.spacers = n())
+
+assembySummary <- left_join(assembySummary, array.counts, by = "assembly_accession")
+assembySummary <- left_join(assembySummary, spacer.counts, by = "assembly_accession")
+
+data.types <- c("All", "Representative", "Complete")
+
+
+columns <- c("Genomes", "Arrays", "Subtypes", "Subtypes and arrays", "Single Subtypes", "Genes", "Number of Arrays", "Number of Spacers")
+
+
+
+summaryTable <- dataSummary(dat = assembySummary, column.type = columns, data.subset = data.types)
+
+
+
+
+
+
+
+
+
+
+
+
+
+signatures <- read.table("~/Desktop/Project/identifycasproteins/models_and_systems.txt", header = T, sep = '\t', comment.char = '', as.is = T, fill = T)
+assem.summary.1 <- read.table("~/Desktop/Project/data_analysis_crispr/assembly_summary._archaea_83.txt", header = F, sep = '\t', comment.char = '#', as.is = T, fill = T)
+colnames(assem.summary.1) <- c( "GCF_number",    "bioproject",      "biosample",       "wgs_master",      "refseq_category", "taxid",   "species_taxid",   "organism_name", "infraspecific_name",  "isolate", "version_status",  "assembly_level",  "release_type",    "genome_rep",      'seq_rel_date',    "asm_name",        "submitter",       "gbrs_paired_asm", "paired_asm_comp", "ftp_path",        "excluded_from_refseq",    "relation_to_type_material")
+
+assem.summary.2 <- read.table("~/Desktop/Project/data_analysis_crispr/assembly_summary_bacteria_83.txt", header = F, sep = '\t', comment.char = '#', as.is = T, fill = T)
+colnames(assem.summary.2) <- c( "GCF_number",    "bioproject",      "biosample",       "wgs_master",      "refseq_category", "taxid",   "species_taxid",   "organism_name", "infraspecific_name",  "isolate", "version_status",  "assembly_level",  "release_type",    "genome_rep",      'seq_rel_date',    "asm_name",        "submitter",       "gbrs_paired_asm", "paired_asm_comp", "ftp_path",        "excluded_from_refseq",    "relation_to_type_material")
+
+assem.summary <- rbind(assem.summary.1, assem.summary.2)
+
+##import and set up the cas_genes_genomes variable
+archaeal_cas_genes_genomes <- read.table("~/Desktop/Project/identifycasproteins/genomes_with_cas_proteins_archaea_refseq_79_gff_metadata.txt", sep = "\t", comment.char = "", fill = T, header = T)
+bacterial_cas_genes_genomes <- read.table("~/Desktop/Project/identifycasproteins/genomes_with_cas_proteins_bacteria_refseq_79_gff_metadata.txt", sep = "\t", comment.char = "", fill = T, header = T)
+cas_genes_genomes <- rbind(archaeal_cas_genes_genomes, bacterial_cas_genes_genomes)
+
+cas_genes_genomes <- cas_genes_genomes%>%mutate(subtypes = ifelse(subtypes == ",CAS-I-E, OTHER?", "CAS-I-E", subtypes))%>%mutate(subtypes = ifelse(subtypes == ",CAS-I-F, OTHER?", "CAS-I-F", subtypes))%>%mutate(first.letter.subtypes = substr(subtypes, 1, 1))%>%mutate(subtypes = ifelse(first.letter.subtypes == ",", substr(subtypes, 2, nchar(subtypes)), subtypes))%>%mutate(subtypes.split = strsplit(subtypes, ","))%>%mutate(single.system.y.n = ifelse(substr(subtypes.split, 1, 2) == "c(", F, ifelse(substr(subtypes.split, 1, 2) == "ch", F, T)))%>%select(-subtypes.split)
+
+
+##import spacer data
+spacer.dat <- read.table("~/Desktop/Project/all.CRISPRDetect.spacers.txt", sep = "\t", comment.char = "", fill = T, header = F)
+colnames(spacer.dat) <- c("spacer.id", "spacer.seq")
+spacer.dat <- spacer.dat%>%mutate(xx = nchar(spacer.seq))
+colnames(spacer.dat) <- c("spacer.id", "spacer.seq", "spacer.length")
+spacer.dat <- spacer.dat%>%mutate(spacer.length = nchar(spacer.seq))
+
+##get contig and GCf names to match them up in a dictionary
+array.names.1 <- read.table("~/Desktop/CRISPR_Array_filenames_archaea.txt", comment.char = "")
+array.names.2 <- read.table("~/Desktop/CRISPR_Array_filenames_bacteria.txt", comment.char = "")
+array.names <- rbind(array.names.1, array.names.2)
+array.names <- separate(array.names, V1, c("i1", "i2"), sep = "#", remove = T)
+array.names <- separate(array.names, i2, c("GCF_number", "i3"), sep = "/", remove = T)%>%select(-i1)
+array.names <- separate(array.names, i3, c("contig.name", "i4"), sep = "_repeat.", remove = T)%>%select(-i4)
+
+##make a spacer data df
+s.dat <- separate(spacer.dat, spacer.id, c("x1", "Array.pos", "x2"), sep = "\\|", remove = F)
+s.dat <- separate(s.dat, x1, c("contig.name"), sep = "-", extra = "drop", remove = T)
+s.dat <- separate(s.dat, x2, c("array.number", "x1", "i1", "array.score"), sep = "_", extra = "drop", remove = T)%>%
+  select(-i1)%>%
+  mutate(array.score = as.numeric(as.character(array.score)))
+s.dat <- separate(s.dat, x1, "spacer.number", sep = "\\[", remove = T, extra = "drop")%>%mutate(contig.name = substr(contig.name, 2, nchar(contig.name)))
+s.dat <- left_join(s.dat,  array.names, by = "contig.name")
+
+
+##import the genes data for cas genes
+genes.dat <- read.table("~/Desktop/genes.dat.txt", header = T, sep = "\t", comment.char = "")
+
+##get cas1 position
+cas1.positions <- genes.dat%>%filter(gene == "cas1")%>%mutate(cas1.pos = as.numeric(as.character(gene.start)))%>%select(GCF_number, cas1.pos)
+cas2.positions <- genes.dat%>%filter(gene == "cas2")%>%mutate(cas2.pos = as.numeric(as.character(gene.start)))%>%select(GCF_number, cas2.pos)
+
+
+genes.dat <- left_join(genes.dat, cas1.positions, by = "GCF_number")  
+genes.dat <- left_join(genes.dat, cas2.positions, by = "GCF_number")  
+genes.dat <- genes.dat%>%filter(!is.na(gene))%>%filter(gene != "")
+
+
+
+
+cas1.distances <- genes.dat%>%filter(!is.na(cas1.pos))%>%mutate(distance.to.cas1 = as.numeric(cas1.pos) - as.numeric(as.character(gene.start)))
+cas2.distances <- genes.dat%>%filter(!is.na(cas2.pos))%>%mutate(distance.to.cas2 = as.numeric(cas2.pos) - as.numeric(as.character(gene.start)))
+
+
+##match array start and and gene data
+tt <- s.dat%>%select(GCF_number, Array.pos)
+tt <- unique(tt)
+genes.dat <- left_join(genes.dat, tt, by = "GCF_number")
+genes.dat <- separate(genes.dat, Array.pos, "Array.start.pos", "-", remove = T, extra = "drop")
+genes.dat <- genes.dat%>%mutate(distance.to.array = as.numeric(as.character(gene.start)) - as.numeric(as.character(Array.start.pos)))
+
+ggplot() +
+  geom_histogram(data = subset(cas1.distances, gene != "cas1"),  binwidth = 1000, aes(distance.to.cas1, y= ..count..)) +
+  ggtitle("Distance from cas1 to other genes") +
+  #labs(x="Distance from oldest protospacer (nucleotides)",y="Number of hits") +
+  coord_cartesian(xlim = c(-50000,50000)) +
+  theme_bw()
+ggplot() +
+  geom_histogram(data = subset(cas1.distances, gene == "cas2"),  binwidth = 1000, aes(distance.to.cas1, y= ..count..)) +
+  ggtitle("Distance from cas1 to cas2") +
+  #labs(x="Distance from oldest protospacer (nucleotides)",y="Number of hits") +
+  coord_cartesian(xlim = c(-50000,50000)) +
+  theme_bw()
+
+ggplot() +
+  geom_histogram(data = subset(subset(cas2.distances, gene == "cas3"), Subtype == "CAS-I-E"),  binwidth = 1000, aes(distance.to.cas2, y= ..count..)) +
+  ggtitle("Distance from cas2 to cas3 in I-E genomes") +
+  #labs(x="Distance from oldest protospacer (nucleotides)",y="Number of hits") +
+  coord_cartesian(xlim = c(-50000,50000)) +
+  theme_bw()
+
+ggplot() +
+  geom_histogram(data = genes.dat,  binwidth = 1000, aes(distance.to.array, y= ..count..)) +
+  ggtitle("Distance from array to genes") +
+  #labs(x="Distance from oldest protospacer (nucleotides)",y="Number of hits") +
+  coord_cartesian(xlim = c(-50000,50000)) +
+  theme_bw()
+
+##make df with the cas genomes data
+cas.genomes <- cas_genes_genomes%>%mutate(GCF_number = gcf.number)%>%select(-gcf.number)
+
+##make temporary cas_genes_genomes df that does not contain the columns found in genes.dat
+tt <- cas.genomes%>%select(-gff_starts, -gff_stops, -cas.e.values, -cdd.e.values, -cas.models, -genes, -first.letter.subtypes)
+
+##append the info on subtypes and other things
+genes.dat <- left_join(genes.dat, tt, by = "GCF_number")
+
+##make temporary cas_genes_genomes df that does not contain the columns found in genes.dat
+tt <- cas.genomes%>%select(-first.letter.subtypes)
+s.dat <- left_join(s.dat, tt, by = "GCF_number")
+s.dat <- unique(s.dat)
+
+
+tt <- genes.dat%>%select(GCF_number, cas1.pos, Array.start.pos)
+tt <- unique(tt)
+length(unique(tt$GCF_number))
+#s.dat <- left_join(s.dat, tt, by = "GCF_number")
+#s.dat <- unique(s.dat)
+
+
+####---------------------------------####
+
+##make df of spacers that match to genomes where there are no cas genes
+
+
+s.no.genes <- rbind(s.dat%>%filter(array.score > 4)%>%filter(genes == ""),s.dat%>%filter(array.score > 4)%>%filter(is.na(genes)))
+for(i in 1:50){
+  xx <- s.dat%>%filter(array.score > 4)%>%filter(genes == paste(rep(",", i), collapse = ""))
+s.no.genes <- rbind(s.no.genes, xx)  
+
+}
+s.no.genes <- rbind(s.dat%>%filter(array.score > 4)%>%filter(genes == ""),s.dat%>%filter(array.score > 4)%>%filter(is.na(genes)),s.dat%>%filter(array.score > 4)%>%filter(genes == ","))
+n.of.genomes.with.arrays.and.not.contigs <- length(unique(s.no.genes$GCF_number))
+n.of.genomes.with.arrays <- length(unique(s.dat$GCF_number))
+
+
+
+s.no.subtypes <- s.dat%>%filter(array.score > 4)%>%filter(subtypes == "")%>%filter(!is.na(genes))
+for(i in 1:50){
+  s.no.subtypes <- s.no.subtypes%>%filter(genes != "")%>%filter(genes != paste(rep(",", i), collapse = ""))
+}
+
+s.no.subtypes <- s.no.subtypes%>%group_by(spacer.id)%>%mutate(x = length(unique(unlist(strsplit(genes, ",")))))
+
+table(s.no.subtypes$basic.genes.present.y.n)
+table(s.dat$basic.genes.present.y.n)
+
+####---------------------------------####
+
+##match the refseq data and spacer data.
+s.dat <- left_join(s.dat, assem.summary, by = "GCF_number")
+
+##keep significant spacers
+s.true <- s.dat%>%filter(assembly_level != "Contig")%>%filter(array.score > 4)%>%filter(subtypes != "")
+
+length(unique(s.true$GCF_number))
+
+
+tt <- unique(s.true%>%select(GCF_number, subtypes))
+
+table(tt$subtypes)
+
+spacer.numbers <- s.true%>%group_by(GCF_number, contig.name, array.number)%>%distinct()%>%summarise(spacer.count = n())
+array.numbers <- spacer.numbers%>%group_by(contig.name)%>%distinct()%>%summarise(array.count = n())
+spacer.numbers <- left_join(spacer.numbers, array.numbers, by = "contig.name")
+
+subtypes <- s.dat%>%select(GCF_number, subtypes, single.system.y.n)
+spacer.numbers <- left_join(spacer.numbers, subtypes, by = "GCF_number")
+spacer.numbers <- unique(spacer.numbers)%>%mutate(id = paste(contig.name, array.number, sep ="-"))%>%ungroup()%>%select(-GCF_number, -contig.name, -array.number)
+
+
+ggplot() + 
+  geom_boxplot(data= subset(spacer.numbers, single.system.y.n == T), aes(y = spacer.count, x = subtypes)) +
+  scale_y_continuous(limits = quantile(spacer.numbers$spacer.count, c(0, 0.9))) +
+  theme_bw() +
+  ggtitle("Boxplot of the number of spacers found in genomes by subtype")
+
+ggplot() + 
+  geom_boxplot(data=counts, aes(y = Array.count, x = Subtype, fill = Subtype)) +
+  theme_bw() +
+  ggtitle("Boxplot of the number of arrays found in genomes by subtype")
+
+
+
+  ##make targets data df
+##import data
+targets.dat <-  read.table("~/Desktop/Project/CRISPRClustering/refseq_79.swipe.one_target_genome.no.arrays.in.targets", comment.char = "", fill = T, sep = "\t", header = T)
+
+targets.dat <- targets.dat%>%mutate(strand.plus.direction = paste(target.strand, five.three.prime.dir, sep = "_"))
+targets.dat <- targets.dat%>%mutate(legend.labels = ifelse(strand.plus.direction == "n_3", "Non-target 3' direction", ifelse(strand.plus.direction == "n_5", "Non-target 5' direction",ifelse(strand.plus.direction == "t_3", "Target 3' direction", "Target 5' direction"))))
+
+
+###this makes the target data ready to merge with the genes data (by contig) which makes it possible to look at data of interest found in either dataset.
+td <- separate(targets.dat, Genome, sep = "-",into =  "contig.name", extra = "drop", remove = F)
+td <- unique(td)
+
+
+length(unique(s.dat$GCF_number))
+length(unique(s.dat$contig.name))
+length(unique(s.dat$spacer.id))
+
+length(unique(array.names$GCF_number))
+length(unique(array.names$contig.name))
+
+#a.cts <- s.dat%>%group_by()
+
+
+##make temporary spacer df
+tt <- unique(s.dat%>%mutate(id = paste(contig.name, array.number, sep = "-"))%>%select(GCF_number, id, array.score, basic.genes.present.y.n))
+td <- td%>%mutate(id = paste(contig.name, array.num, sep = "-"))
+
+
+
+spacer.numbers.all <- s.dat%>%group_by(GCF_number, contig.name, array.number)%>%distinct()%>%summarise(spacer.count = n())
+array.numbers.all <- spacer.numbers.all%>%group_by(contig.name)%>%distinct()%>%summarise(array.count = n())
+spacer.numbers.all <- left_join(spacer.numbers.all, array.numbers.all, by = "contig.name")
+
+subtypes <- s.dat%>%select(GCF_number, subtypes, single.system.y.n)
+spacer.numbers.all <- left_join(spacer.numbers.all, subtypes, by = "GCF_number")
+spacer.numbers.all <- unique(spacer.numbers.all)%>%mutate(id = paste(contig.name, array.number, sep ="-"))%>%ungroup()%>%select(-GCF_number, -contig.name, -array.number)
+
+
+
+
+
+##append array score to other dfs
+td <- left_join(td, tt, by = "id")
+td <- left_join(td, spacer.numbers.all, by = "id")
+td <- td%>%mutate(spacer.pos.relative = spacer.num/spacer.count * 100)
+
+aa <- tt%>%select(id, array.score)
+bb <- td%>%select(id, GCF_number)
+cc <- spacer.numbers.all%>%select(id, spacer.count)
+bb <- left_join(bb, aa, by = "id")
+bb <- left_join(bb, cc, by = "id")
+bb <- unique(bb)
+
+table(grepl("NZ_AKGD01000001", cc$id))
+
+
+length(unique(tt$id))
+length(unique(td$id))
+length(unique(spacer.numbers$id))
+
+
+
+ggplot() +
+  geom_histogram(data = subset(td, spacer.pos.relative < 100.1), aes(spacer.pos.relative, y = ..count..), binwidth = 1) +
+  ggtitle("Position of spacer in array (proportion of the array)") +
+  coord_cartesian(xlim = c(0,100)) +
+  theme_bw()
+
+
+td.fs <- td%>%filter(spacer_order.num == 1)
+
+ggplot() +
+  geom_histogram(data = subset(td, spacer_order.num == 1), aes(spacer.pos.relative, y = ..count..), binwidth = 0.5) +
+  ggtitle("Position of spacer in array (proportion of the array)") +
+  coord_cartesian(xlim = c(0,100)) +
+  theme_bw()
+
+ggplot() +
+  geom_histogram(data = subset(td, spacer_order.num == 1), aes(spacer.num, y = ..count..), binwidth = 1) +
+  ggtitle("Position of spacer in array (proportion of the array)") +
+  #coord_cartesian(xlim = c(0,100)) +
+  theme_bw()
+
+
+genes.dat <- left_join(genes.dat, tt, by = "GCF_number")
+
+##set up df with the genes data where there are good arrays for all the array analysis
+a.dat <- genes.dat%>%filter(array.score > 4)
+
+
+n.of.genomes <- length(unique(cas.genomes$GCF_number))
+n.of.genomes.with.arrays <- length(unique(a.dat$GCF_number))
+
+
+length(unique(arrays$GCF_number))
+
+
+
+
+
+
+##
+
+
+```
+
+
+Also found 12  phage genomes that contained CRISPR arrays using CRISPRDetect 2.2 on the phage.fa file updated on 22/06/2017
+
+
+
+
+
+The random plots that are produced underneath the actual data take 100 iterations of the random data and then plot each of these iterations on the same plot. The result should be the expected distribution for a naive system, with a similar number of hits in terms of the height of the bars.
+
+
+
+
+Figures seem to show priming in I-B, I-C, I-E, I-F and II-C
+Maybe in I-A and maybe in I-D. Maybe II-A and III-D
+
+```{r plot_paths_and_run_ks_test, eval=F}
+##import data
+targets.dat <-  read.table("~/Desktop/Project/CRISPRClustering/refseq_79.swipe.one_target_genome.no.arrays.in.targets", comment.char = "", fill = T, sep = "\t", header = T)
+
+
+targets.dat <- targets.dat%>%mutate(strand.plus.direction = paste(target.strand, five.three.prime.dir, sep = "_"))
+targets.dat <- targets.dat%>%mutate(legend.labels = ifelse(strand.plus.direction == "n_3", "Non-target 3' direction", ifelse(strand.plus.direction == "n_5", "Non-target 5' direction",ifelse(strand.plus.direction == "t_3", "Target 3' direction", "Target 5' direction"))))
+
+rh <- random.hits.generate()
+
+rh <- rh%>%arrange(unique.spacer.target.match)%>%mutate(group.number = rep(1:10, 10*nrow(targets.dat)))
+
+subtypes <- c("I-A", "I-B", "I-C", "I-D", 
+              "I-E", "I-F", "II-A", "II-C", 
+              "III-A", "III-D")
+
+ks.df <- data.frame(subtype = subtypes,  count =rep(NA, 10), p.value =rep(NA, 10))
+
+
+
+p <- plotProtospacerAndRandomDistribution(Subtype.label = "I-F", smoothing.val = 300)
+p
+
+#KS TEST
+for(i in 1:10){
+      s <- subtypes[i]
+    rd <- rh%>%filter(Subtype == s)
+    td <- targets.dat%>%filter(Subtype == s)
+    xlim.num <- 10000
+    sr <- rd%>%filter(protospacer.distance.num > -xlim.num)%>%filter(protospacer.distance.num < xlim.num)%>%filter(spacer_order.num > 1)
+    st <- td%>%filter(protospacer.distance.num > -xlim.num)%>%filter(protospacer.distance.num < xlim.num)%>%filter(spacer_order.num > 1)
+    
+    ks.res <- suppressWarnings(ks.test(sr$protospacer.distance.num, st$protospacer.distance.num))
+    ks.p <- ks.res$p.value
+    ks.df[i,3] <- ks.p
+    ks.df[i,2] <- nrow(st)
+    
+}
+
+
+##PLOT DISTRIBUTIONS
+i <- 6
+
+for(i in 1:10){
+
+  subtypes[i]
+  p <- plotProtospacerAndRandomDistribution(random.hits = rh, dat = targets.dat, Subtype.label = subtypes[i], smoothing.val = 300)
+  q <- plotAdjustedDistribution(random.hits = rh, dat = targets.dat, Subtype.label = subtypes[i], smoothing.val = 300)
+  
+  
+  
+  grid.arrange(p, q, nrow = 2)
+
+}
+
+
+
+
+```
+
+
+```{r tmp}
+
+
+ggplot() +
+  geom_histogram(data = rh%>%filter(protospacer.distance.num > -10000)%>%filter(protospacer.distance.num < 10000)%>%filter(spacer_order.num != 1), aes(x = protospacer.distance.num, y = ..count..), binwidth = 150)
+
+```
