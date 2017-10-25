@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "#' clust.data.frame Function\n#'\n#' @param clust.res Data frame containing info about all the protospacers that are clusterd\n#' @export\n#' @examples\n#' clust.data.frame()\nclust.data.frame <- function(clust.res){\ntt <- clust.res\nunique.cluster.names <- vector(mode=\"numeric\", length=length(tt$Score))\nfor(i in 1:length(unique.cluster.names)){\n  if(tt$cluster[i]>0){\n  unique.cluster.names[i] <- paste(tt$Target_name[i],tt$cluster[i], sep='_')\n  }else{\n    unique.cluster.names[i] <- NA\n  }\n}\ntt <- cbind(tt, unique.cluster.names)\n\nx <- vector(mode=\"numeric\", length=length(levels(tt$unique.cluster.names)))\nclust.dat <- data.frame(target.name=x,cluster=x,spcaer.number=x,mean.gap=x,score=x)\na <- 0\nfor(i in levels(tt$Target_name)){\n  xx <- getSubsetBasedOnRows(tt,10,i)\n  xx <- transform(xx, cluster = as.factor(cluster))\n  for(j in levels(xx$cluster)){\n    if(j != '0'){\n      a <- a +1\n    clusterDat <- getSubsetBasedOnRows(xx,14,j)\n    clusterDat <- transform(clusterDat, gap = as.character(gap))\n    clusterDat <- transform(clusterDat, gap = as.numeric(gap))\n    clusterDat <- transform(clusterDat, p.value = as.character(p.value))\n    clusterDat <- transform(clusterDat, p.value = as.numeric(p.value))\n    spacers <- c()\n    for(k in 1:length(clusterDat[,1])){\n      spacers <- c(spacers,clusterDat[k,8])\n    }\n    #print(i)\n    #print(j)\n    spacers <- toString(spacers)\n    #print(spacers)\n    clust.dat[a,1] <- i \n    clust.dat[a,2] <- j\n    clust.dat[a,3] <- spacers\n    clust.dat[a,4] <- mean(clusterDat$gap)\n    clust.dat[a,5] <- mean(clusterDat$p.value)\n    }else{\n      print(j)\n    }\n  }\n}\nreturn(clust.dat)\n}\n",
+    "created" : 1473423746519.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3682248906",
+    "id" : "14199FA5",
+    "lastKnownWriteTime" : 1473424031,
+    "last_content_update" : 1473424031208,
+    "path" : "~/Desktop/CRISPRSpacerTools/R/clusterDataframe.R",
+    "project_path" : "clusterDataframe.R",
+    "properties" : {
+    },
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

@@ -10,7 +10,7 @@ genomeLength <- function(genome.length.filename, nrDat){
 nrDat <- transform(nrDat, Target_name = as.factor(Target_name))
 genome.length <- read.table(genome.length.filename, header=F, sep='\t', stringsAsFactors = F)
 Genome_length <- vector(mode="numeric", length=length(nrDat$Score))
-nrDat <- cbind(nrDat, Genome_length)
+nrDat <- cbind(nrDat[,1:10], Genome_length,nrDat[,11:14])
 nrDat <- transform(nrDat, Genome_length = as.numeric(Genome_length))
 
 for(j in 1:length(nrDat$Spacer_ID)){

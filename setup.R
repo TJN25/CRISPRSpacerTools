@@ -1,11 +1,11 @@
-#' Setup Function
+#' setup Function
 #'
 #' This function allows you to set the working directory and install the needed packages.
 #' @keywords setup
 #' @export
 #' @examples
 #' setup()
-setup <- function(){
+setup <- function(path_to_wd){
   library(ggplot2)
   library(GenomeGraphs)
   library(genoPlotR)
@@ -13,4 +13,5 @@ setup <- function(){
   library(lattice)
   library(genomation)
   library(parallel)
+  setwd(path_to_wd)
 }

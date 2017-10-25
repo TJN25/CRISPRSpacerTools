@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "##\nupdateCRISPRPackage()\n\nCRISPRSpacerTools::setup('~/Desktop/Project/CRISPRDetect/')\nDat <- loadCRISPRTargetData('I-D/CRISPRTarget_output_I-D_with_positions.txt','F')\nnrDat <- getnrDat(Dat, 4)\nnrDat <- genomeLength('../../Scripts/testing/genome_lengths_I-D_archaeal.txt',nrDat)\nclust.res <- scoreClusters(nrDat)\nclust.dat <- clust.data.frame(clust.res)\n\n\n##\n#Revert data back to previous position\nnrDat <- nrDat[,-11,drop=F]\n\n##\n\n\n\n",
+    "created" : 1473423761567.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "1743621079",
+    "id" : "FA2907C4",
+    "lastKnownWriteTime" : 1473424050,
+    "last_content_update" : 1473424050919,
+    "path" : "~/Desktop/Project/clustering.R",
+    "project_path" : null,
+    "properties" : {
+    },
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

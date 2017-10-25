@@ -1,0 +1,20 @@
+{
+    "collab_server" : "",
+    "contents" : "#' updateCRISPRPackage Function\n#'\n#' @export\n#' @examples\n#' updateCRISPRPackage()\nupdateCRISPRPackage <- function(){\nlibrary(\"devtools\")\nlibrary(roxygen2)\nsetwd('~/Desktop/CRISPRSpacerTools/')\ndocument()\n}\n",
+    "created" : 1473423803327.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "3700075342",
+    "id" : "C323D22D",
+    "lastKnownWriteTime" : 1473382177,
+    "last_content_update" : 1473382177,
+    "path" : "~/Desktop/CRISPRSpacerTools/R/updateCRISPRPackage.R",
+    "project_path" : "updateCRISPRPackage.R",
+    "properties" : {
+    },
+    "relative_order" : 3,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}
